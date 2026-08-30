@@ -4,6 +4,13 @@ from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
+from typing import TYPE_CHECKING
+
+from sqlalchemy.orm import relationship
+
+if TYPE_CHECKING:
+    from app.models.imagery import Imagery
+
 
 
 class Project(Base):
@@ -16,6 +23,11 @@ class Project(Base):
     id: Mapped[int] = mapped_column(
         primary_key=True,
         autoincrement=True,
+    )
+
+    imagery: Mapped[list["Imagery"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
     )
 
     name: Mapped[str] = mapped_column(

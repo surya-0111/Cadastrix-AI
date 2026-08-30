@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     debug: bool = True
 
     database_url: str
+    upload_dir: str = "./storage"
+    max_upload_size_mb: int = 500
 
     model_config = SettingsConfigDict(
         env_file=".env",
