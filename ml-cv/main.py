@@ -13,32 +13,44 @@ from cv.preprocessing.image_loader import load_geotiff
 def process_geotiff(
     image_path: str,
     min_polygon_area: float = 1e-8,
+    method: str = "baseline",
 ) -> list[dict]:
     """
-    Run the ML-CV boundary extraction pipeline.
+    Process a GeoTIFF and extract geospatial polygons.
 
-    GeoTIFF
-        -> Raster loading
-        -> RGB conversion
-        -> Boundary detection
-        -> Polygonization
+    Args:
+        image_path: Input GeoTIFF.
+        min_polygon_area: Minimum polygon area.
+        method:
+            "baseline" -> classical Canny detector.
 
     Returns:
         List of GeoJSON-compatible polygon geometries.
     """
+
+    if method not in {"baseline"}:
+        raise ValueError(
+            f"Unsupported detection method: {method}"
+        )
 
     raster = load_geotiff(image_path)
 
     data = raster["data"]
 
     if data.shape[0] < 3:
-        raise ValueError("Expected a GeoTIFF with at least 3 bands.")
+        raise ValueError(
+            "Expected a GeoTIFF with at least 3 bands."
+        )
 
-    # Rasterio returns bands-first: (C, H, W).
-    # OpenCV expects channels-last: (H, W, C).
+    # Rasterio format:
+    # (channels, height, width)
+    #
+    # OpenCV format:
+    # (height, width, channels)
     rgb = np.transpose(data[:3], (1, 2, 0))
 
-    mask = detect_boundaries(rgb)
+    if method == "baseline":
+        mask = detect_boundaries(rgb)
 
     polygons = mask_to_polygons(
         mask,
