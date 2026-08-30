@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cadastrix AI — Autonomous Cadastral WebGIS</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- MapLibre GL CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #080c16; color: #f1f5f9; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #080c16; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    @keyframes pulse-ring { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.15); opacity: 0.3; } 100% { transform: scale(0.95); opacity: 0.8; } }
+    .flag-pulse { animation: pulse-ring 2s infinite ease-in-out; }
+  </style>
+</head>
+<body class="selection:bg-blue-600 selection:text-white">
+  <div id="root"></div>
+
+  <!-- Main Application Script -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- MOCK DATA GENERATOR ---
+    const MAP_CENTER = [80.2341, 13.0418]; // Chennai T. Nagar
+    const INITIAL_PROJECTS = [
+      {
+        id: "proj-001",
+        name: "Urban Survey — Chennai",
+        subtext: "Panagal Park / Pondy Bazaar Cadastral Sector 4",
+        location: "Chennai, Tamil Nadu",
+        date: "2026-08-28",
+        status: "Completed",
+        total_area_m2: 184520,
+        parcels_count: 127,
+        buildings_count: 214,
+        roads_km: 4.8,
+        valid_parcels: 121,
+        repaired_parcels: 4,
+        review_parcels: 2,
+        crs: "EPSG:32644 - UTM 44N",
+        gsd_cm: 3.5
+      },
+      {
+        id: "proj-002",
+        name: "Urban Survey — Test Area",
+        subtext: "Zone 7 Peripheral Settlement Pilot",
+        location: "Guindy Industrial Corridor",
+        date: "2026-08-30",
+        status: "Processing",
+        total_area_m2: 92400,
+        parcels_count: 48,
+        buildings_count: 82,
+        roads_km: 2.1,
+        valid_parcels: 45,
+        repaired_parcels: 2,
+        review_parcels: 1,
+        crs: "EPSG:32644 - UTM 44N",
+        gsd_cm: 4.0
+      },
+      {
+        id: "proj-003",
+        name: "North Chennai Industrial Zone",
+        subtext: "Harbour Environs Cadastral Revision",
+        location: "George Town & Port Sector",
+        date: "2026-08-24",
+        status: "Completed",
+        total_area_m2: 340100,
+        parcels_count: 84,
+        buildings_count: 145,
+        roads_km: 7.2,
+        valid_parcels: 82,
+        repaired_parcels: 2,
+        review_parcels: 0,
+        crs: "EPSG:32644 - UTM 44N",
+        gsd_cm: 2.8
+      }
+    ];
+
+    function generateParcelsGeoJSON() {
+      const originLng = 80.2310;
+      const originLat = 13.0395;
+      const rows = 11;
+      const cols = 12;
+      const dLng = 0.00045;
+      const dLat = 0.00040;
+      const gap = 0.00008;
+
+      const features = [];
+      let count = 0;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          count++;
+          if (count > 127) break;
+
+          const parcelId = `P${count.toString().padStart(3, '0')}`;
+          const minX = originLng + c * (dLng + gap);
+          const maxX = minX + dLng;
+          const minY = originLat + r * (dLat + gap);
+          const maxY = minY + dLat;
+          const wobble = ((r * 13 + c * 7) % 5) * 0.00002;
+
+          const ring = [
+            [minX, minY],
+            [maxX + wobble, minY],
+            [maxX, maxY + wobble],
+            [minX - wobble, maxY],
+            [minX, minY]
+          ];
+
+          let area = Math.round(1200 + ((r * 77 + c * 31) % 450));
+          let buildingArea = Math.round(area * 0.28 + ((c * 19) % 80));
+          let confidence = 0.90 + ((r + c) % 8) * 0.01;
+          let valid = true;
+          let issue = null;
+          let surveyStatus = 'APPROVED';
+
+          if (parcelId === 'P017') {
+            area = 1432.7;
+            buildingArea = 351.0;
+            confidence = 0.93;
+            valid = true;
+            issue = null;
+          } else if (parcelId === 'P024') {
+            area = 890.5;
+            buildingArea = 210.0;
+            confidence = 0.61;
+            valid = false;
+            issue = 'Boundary uncertainty / Potential road overlap';
+            surveyStatus = 'REQUIRES_REVIEW';
+          } else if (parcelId === 'P042') {
+            area = 1120.0;
+            buildingArea = 280.0;
+            confidence = 0.74;
+            valid = false;
+            issue = 'Minor gap detected with adjacent plot P041';
+            surveyStatus = 'REQUIRES_REVIEW';
+          } else if (parcelId === 'P038' || parcelId === 'P065' || parcelId === 'P089' || parcelId === 'P112') {
+            confidence = 0.88;
+            valid = true;
+            issue = 'Self-intersection auto-repaired by topology engine';
+            surveyStatus = 'AUTO_REPAIRED';
+          }
+
+          features.push({
+            type: 'Feature',
+            id: parcelId,
+            properties: {
+              parcel_id: parcelId,
+              area_m2: area,
+              building_m2: buildingArea,
+              confidence: Math.round(confidence * 100) / 100,
+              geometry_valid: valid,
+              issue: issue,
+              survey_status: surveyStatus,
+              zone_code: 'R3-URBAN'
+            },
+            geometry: { type: 'Polygon', coordinates: [ring] }
+          });
+        }
+      }
+      return { type: 'FeatureCollection', features };
+    }
+
+    function generateBuildingsGeoJSON(parcelsGeoJSON) {
+      const features = [];
+      parcelsGeoJSON.features.forEach((p, idx) => {
+        if (idx % 7 === 0 && idx !== 16) return;
+        const coords = p.geometry.coordinates[0];
+        const minX = coords[0][0];
+        const maxX = coords[1][0];
+        const minY = coords[0][1];
+        const maxY = coords[2][1];
+        const padX = (maxX - minX) * 0.22;
+        const padY = (maxY - minY) * 0.20;
+
+        const bRing = [
+          [minX + padX, minY + padY],
+          [maxX - padX, minY + padY],
+          [maxX - padX, maxY - padY],
+          [minX + padX, maxY - padY],
+          [minX + padX, minY + padY]
+        ];
+
+        features.push({
+          type: 'Feature',
+          id: `BLD-${p.properties.parcel_id}`,
+          properties: {
+            building_id: `BLD-${p.properties.parcel_id}`,
+            parcel_id: p.properties.parcel_id,
+            area_m2: p.properties.building_m2,
+            confidence: p.properties.confidence
+          },
+          geometry: { type: 'Polygon', coordinates: [bRing] }
+        });
+      });
+      return { type: 'FeatureCollection', features };
+    }
+
+    function generateRoadsGeoJSON() {
+      const originLng = 80.2310;
+      const originLat = 13.0395;
+      const dLng = 0.00045 + 0.00008;
+      const dLat = 0.00040 + 0.00008;
+      const features = [];
+
+      for (let r = 0; r <= 11; r++) {
+        const lat = originLat + r * dLat - 0.00004;
+        features.push({
+          type: 'Feature',
+          id: `ROAD-H-${r}`,
+          properties: {
+            road_id: `R-H${r}`,
+            name: r === 5 ? 'Usman Road Arterial' : `Cross Street ${r + 1}`,
+            road_type: r === 5 ? 'Arterial' : 'Local Access'
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: [[originLng - 0.0005, lat], [originLng + 12 * dLng + 0.0005, lat]]
+          }
+        });
+      }
+
+      for (let c = 0; c <= 12; c++) {
+        const lng = originLng + c * dLng - 0.00004;
+        features.push({
+          type: 'Feature',
+          id: `ROAD-V-${c}`,
+          properties: {
+            road_id: `R-V${c}`,
+            name: c === 6 ? 'Panagal Park Link' : `Sub-lane ${c + 1}`,
+            road_type: c === 6 ? 'Collector' : 'Access'
+          },
+          geometry: {
+            type: 'LineString',
+            coordinates: [[lng, originLat - 0.0005], [lng, originLat + 11 * dLat + 0.0005]]
+          }
+        });
+      }
+      return { type: 'FeatureCollection', features };
+    }
+
+    function downloadFile(content, fileName, contentType) {
+      const a = document.createElement("a");
+      const file = new Blob([content], { type: contentType });
+      a.href = URL.createObjectURL(file);
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    // --- APP COMPONENT ---
+    function App() {
+      const [activePage, setActivePage] = useState('dashboard');
+      const [projects, setProjects] = useState(INITIAL_PROJECTS);
+      const [activeProject, setActiveProject] = useState(INITIAL_PROJECTS[0]);
+
+      const [parcels, setParcels] = useState(() => generateParcelsGeoJSON());
+      const [buildings, setBuildings] = useState(() => generateBuildingsGeoJSON(parcels));
+      const [roads, setRoads] = useState(() => generateRoadsGeoJSON());
+
+      const [selectedParcel, setSelectedParcel] = useState(null);
+      const [isEditingVertices, setIsEditingVertices] = useState(false);
+      const [isMergeMode, setIsMergeMode] = useState(false);
+      const [mergeSource, setMergeSource] = useState(null);
+
+      // Layer states
+      const [layers, setLayers] = useState({
+        drone: true,
+        parcels: true,
+        buildings: true,
+        roads: true,
+        invalidGeometry: true,
+        confidence: false
+      });
+      const [droneOpacity, setDroneOpacity] = useState(80);
+      const [basemap, setBasemap] = useState('satellite');
+
+      // Processing pipeline state
+      const [processingStage, setProcessingStage] = useState('COMPLETED');
+      const [processingProgress, setProcessingProgress] = useState(100);
+      const [toast, setToast] = useState(null);
+
+      const showNotification = (msg) => {
+        setToast(msg);
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      useEffect(() => {
+        if (!selectedParcel && parcels.features.length > 0) {
+          const p17 = parcels.features.find(f => f.properties.parcel_id === 'P017');
+          setSelectedParcel(p17 || parcels.features[0]);
+        }
+      }, [parcels]);
+
+      const runPipeline = (proj) => {
+        setActiveProject(proj);
+        setActivePage('processing');
+        setProcessingProgress(5);
+        setProcessingStage('UPLOADING');
+
+        const steps = [
+          { s: 'UPLOADING', p: 15, d: 500 },
+          { s: 'PREPROCESSING', p: 32, d: 1100 },
+          { s: 'SEGMENTING', p: 52, d: 1800 },
+          { s: 'VECTORISING', p: 70, d: 2500 },
+          { s: 'RECONSTRUCTING', p: 85, d: 3100 },
+          { s: 'VALIDATING', p: 95, d: 3700 },
+          { s: 'COMPLETED', p: 100, d: 4300 },
+        ];
+
+        steps.forEach(({ s, p, d }) => {
+          setTimeout(() => {
+            setProcessingStage(s);
+            setProcessingProgress(p);
+            if (s === 'COMPLETED') {
+              showNotification("AI & GIS Pipeline finished: 127 parcels reconstructed.");
+            }
+          }, d);
+        });
+      };
+
+      // Parcel Actions
+      const handleApprove = (p) => {
+        const updated = {
+          ...p,
+          properties: { ...p.properties, survey_status: 'APPROVED', geometry_valid: true, issue: null }
+        };
+        setParcels(prev => ({
+          ...prev,
+          features: prev.features.map(f => f.properties.parcel_id === p.properties.parcel_id ? updated : f)
+        }));
+        setSelectedParcel(updated);
+        showNotification(`Parcel ${p.properties.parcel_id} stamped APPROVED.`);
+      };
+
+      const handleSplit = (p) => {
+        const pId = p.properties.parcel_id;
+        const coords = p.geometry.coordinates[0];
+        const minX = coords[0][0], maxX = coords[1][0], minY = coords[0][1], maxY = coords[2][1];
+        const midX = (minX + maxX) / 2;
+
+        const subA = {
+          ...p,
+          id: `${pId}-A`,
+          properties: { ...p.properties, parcel_id: `${pId}-A`, area_m2: Math.round(p.properties.area_m2 * 0.48), geometry_valid: true, survey_status: 'APPROVED' },
+          geometry: { type: 'Polygon', coordinates: [[[minX, minY], [midX, minY], [midX, maxY], [minX, maxY], [minX, minY]]] }
+        };
+        const subB = {
+          ...p,
+          id: `${pId}-B`,
+          properties: { ...p.properties, parcel_id: `${pId}-B`, area_m2: Math.round(p.properties.area_m2 * 0.52), geometry_valid: true, survey_status: 'APPROVED' },
+          geometry: { type: 'Polygon', coordinates: [[[midX, minY], [maxX, minY], [maxX, maxY], [midX, maxY], [midX, minY]]] }
+        };
+
+        setParcels(prev => ({
+          ...prev,
+          features: [...prev.features.filter(f => f.properties.parcel_id !== pId), subA, subB]
+        }));
+        setSelectedParcel(subA);
+        showNotification(`Parcel ${pId} split into ${subA.properties.parcel_id} & ${subB.properties.parcel_id}.`);
+      };
+
+      const handleExportGeoJSON = () => {
+        downloadFile(JSON.stringify(parcels, null, 2), `${activeProject.name.replace(/\s+/g, '_')}_cadastre.geojson`, 'application/geo+json');
+        showNotification("Exported Cadastral GeoJSON file.");
+      };
+
+      const handleExportCSV = () => {
+        const rows = [
+          ['Parcel ID', 'Area (sq m)', 'Building Area (sq m)', 'Confidence (%)', 'Status'],
+          ...parcels.features.map(f => [
+            f.properties.parcel_id,
+            f.properties.area_m2,
+            f.properties.building_m2,
+            Math.round(f.properties.confidence * 100),
+            f.properties.survey_status
+          ])
+        ];
+        const csv = rows.map(r => r.join(',')).join('\n');
+        downloadFile(csv, `${activeProject.name.replace(/\s+/g, '_')}_report.csv`, 'text/csv');
+        showNotification("Exported Cadastral Survey Report (CSV).");
+      };
+
+      // Viewport State
+      const [viewport, setViewport] = useState({ centerLng: 80.2341, centerLat: 13.0418, zoom: 17.2 });
+      const [pan, setPan] = useState({ isPanning: false, x: 0, y: 0 });
+
+      const projectCoords = (lng, lat) => {
+        const scale = Math.pow(2, viewport.zoom) * 140;
+        const x = (lng - viewport.centerLng) * scale + (window.innerWidth / 2);
+        const y = -(lat - viewport.centerLat) * scale + (window.innerHeight / 2);
+        return [x, y];
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+          {/* Header */}
+          <header className="h-16 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between z-30 sticky top-0 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 p-0.5 shadow-lg shadow-blue-500/20">
+                <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center font-black text-cyan-400 font-mono text-sm">
+                  GIS
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white tracking-tight">Cadastrix AI</span>
+                  <span className="text-[10px] font-semibold uppercase bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full border border-blue-500/30">
+                    Cadastral WebGIS
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">Urban Parcel & Feature Extraction</p>
+              </div>
+            </div>
+
+            {/* Nav Tabs */}
+            <nav className="flex items-center gap-1 bg-slate-950/70 p-1 rounded-xl border border-slate-800">
+              <button
+                onClick={() => setActivePage('dashboard')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activePage === 'dashboard' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Dashboard
+              </button>
+              <button
+                onClick={() => setActivePage('upload')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activePage === 'upload' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Upload Data
+              </button>
+              <button
+                onClick={() => setActivePage('processing')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activePage === 'processing' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Pipeline
+              </button>
+              <button
+                onClick={() => setActivePage('map')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activePage === 'map' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                WebGIS Map
+              </button>
+            </nav>
+
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg text-[11px] font-mono bg-slate-900 border border-slate-800 text-emerald-400">
+                ● Live Ready
+              </span>
+            </div>
+          </header>
+
+          {/* SURVEY DASHBOARD */}
+          {activePage === 'dashboard' && (
+            <div className="max-w-7xl mx-auto px-6 py-8 w-full space-y-8">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-extrabold text-white">Cadastral Survey Projects</h1>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                    AI extraction of building footprints, road networks, and parcel polygons from high-resolution drone orthomosaics.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActivePage('upload')}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs py-3 px-5 rounded-xl shadow-lg shadow-blue-600/30 transition-all self-start"
+                >
+                  + New Drone Survey
+                </button>
+              </div>
+
+              {/* KPI Bar */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">Total Area</span>
+                  <p className="text-2xl font-bold font-mono text-white mt-1">61.7 <span className="text-xs text-slate-500">Ha</span></p>
+                </div>
+                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">Reconstructed Parcels</span>
+                  <p className="text-2xl font-bold font-mono text-cyan-400 mt-1">259</p>
+                </div>
+                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">AI Buildings</span>
+                  <p className="text-2xl font-bold font-mono text-indigo-400 mt-1">441</p>
+                </div>
+                <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">Topology Validity</span>
+                  <p className="text-2xl font-bold font-mono text-emerald-400 mt-1">98.4%</p>
+                </div>
+              </div>
+
+              {/* Projects Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {projects.map((proj) => (
+                  <div key={proj.id} className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between hover:border-blue-500/50 transition-all">
+                    <div>
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-[10px] font-mono text-slate-500">{proj.crs}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${proj.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                          {proj.status}
+                        </span>
+                      </div>
+                      <h3 className="text-lg font-bold text-white">{proj.name}</h3>
+                      <p className="text-xs text-slate-400 mt-1">{proj.subtext}</p>
+                      
+                      <div className="grid grid-cols-3 gap-2 my-4">
+                        <div className="bg-slate-950 p-2 rounded-xl text-center">
+                          <span className="text-[9px] text-slate-500 uppercase">Parcels</span>
+                          <p className="font-mono font-bold text-white text-sm">{proj.parcels_count}</p>
+                        </div>
+                        <div className="bg-slate-950 p-2 rounded-xl text-center">
+                          <span className="text-[9px] text-slate-500 uppercase">Buildings</span>
+                          <p className="font-mono font-bold text-cyan-400 text-sm">{proj.buildings_count}</p>
+                        </div>
+                        <div className="bg-slate-950 p-2 rounded-xl text-center">
+                          <span className="text-[9px] text-slate-500 uppercase">Roads</span>
+                          <p className="font-mono font-bold text-amber-400 text-sm">{proj.roads_km}km</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => { setActiveProject(proj); setActivePage('map'); }}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-xl shadow transition-colors"
+                    >
+                      Open in WebGIS
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ORTHOMOSAIC UPLOAD */}
+          {activePage === 'upload' && (
+            <div className="max-w-3xl mx-auto px-6 py-10 w-full">
+              <div className="bg-gradient-to-r from-blue-900/30 via-cyan-900/30 to-blue-900/30 border border-cyan-500/30 rounded-2xl p-4 mb-6 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-white">Surveyor Benchmark Dataset Mode</h4>
+                  <p className="text-xs text-slate-300">Quick-load the high-resolution Chennai T. Nagar drone dataset without file uploads.</p>
+                </div>
+                <button
+                  onClick={() => runPipeline(projects[0])}
+                  className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs px-4 py-2 rounded-xl shrink-0"
+                >
+                  Load Sample Dataset
+                </button>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-7">
+                <h2 className="text-xl font-bold text-white mb-1">Upload Drone Orthomosaic</h2>
+                <p className="text-xs text-slate-400 mb-6">Select or drag & drop high-resolution georeferenced GeoTIFF imagery.</p>
+
+                <div className="border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-2xl p-10 text-center cursor-pointer mb-6 bg-slate-950/60">
+                  <div className="w-12 h-12 rounded-xl bg-blue-600/10 text-blue-400 mx-auto flex items-center justify-center font-bold mb-3">
+                    ↑
+                  </div>
+                  <p className="text-sm font-semibold text-slate-200">Drag & drop GeoTIFF files or click to browse</p>
+                  <p className="text-xs text-slate-500 mt-1">Accepts .tif, .geotiff, .zip (Max 1.5 GB)</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-400 mb-1 block">Project Title</label>
+                    <input defaultValue="Urban Survey — Chennai Sector 4" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-400 mb-1 block">CRS</label>
+                    <select className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white">
+                      <option>EPSG:32644 (UTM 44N)</option>
+                      <option>EPSG:4326 (WGS 84)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => runPipeline(projects[0])}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg transition-all"
+                >
+                  Start Autonomous AI & GIS Pipeline →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* PROCESSING PIPELINE */}
+          {activePage === 'processing' && (
+            <div className="max-w-4xl mx-auto px-6 py-10 w-full space-y-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <div className="flex justify-between items-center mb-3">
+                  <div>
+                    <span className="text-[10px] font-mono uppercase text-blue-400 font-bold">FastAPI Pipeline Task #8812</span>
+                    <h2 className="text-xl font-bold text-white">Processing Cadastral Extraction</h2>
+                  </div>
+                  <div className="text-3xl font-extrabold font-mono text-cyan-400">{processingProgress}%</div>
+                </div>
+
+                <div className="h-3 w-full bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800">
+                  <div style={{ width: `${processingProgress}%` }} className="h-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 rounded-full transition-all duration-300"></div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-800 text-center">
+                  <div className="bg-slate-950 p-2.5 rounded-xl">
+                    <span className="text-[10px] text-slate-500 uppercase">Tiles</span>
+                    <p className="font-mono font-bold text-white text-base">48 / 48</p>
+                  </div>
+                  <div className="bg-slate-950 p-2.5 rounded-xl">
+                    <span className="text-[10px] text-slate-500 uppercase">Buildings</span>
+                    <p className="font-mono font-bold text-cyan-400 text-base">214</p>
+                  </div>
+                  <div className="bg-slate-950 p-2.5 rounded-xl">
+                    <span className="text-[10px] text-slate-500 uppercase">Roads</span>
+                    <p className="font-mono font-bold text-amber-400 text-base">24</p>
+                  </div>
+                  <div className="bg-slate-950 p-2.5 rounded-xl">
+                    <span className="text-[10px] text-slate-500 uppercase">Parcels</span>
+                    <p className="font-mono font-bold text-emerald-400 text-base">127</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stepper */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-2">
+                {[
+                  { id: 'UPLOADING', label: '1. Orthomosaic Upload & Ingestion', desc: 'CRS metadata verification' },
+                  { id: 'PREPROCESSING', label: '2. Preprocessing & Tiling', desc: '512x512 with 20% overlap' },
+                  { id: 'SEGMENTING', label: '3. Building & Road AI Extraction', desc: 'Deep neural feature masks' },
+                  { id: 'VECTORISING', label: '4. Feature Vectorization', desc: 'Contour polygonization' },
+                  { id: 'RECONSTRUCTING', label: '5. Parcel Boundary Reconstruction', desc: 'Candidate edge assembly' },
+                  { id: 'VALIDATING', label: '6. Topology Validation Engine', desc: 'Self-intersection & gap repairs' },
+                  { id: 'COMPLETED', label: '7. Cadastral Package Ready', desc: 'WebGIS ready for surveyor verification' },
+                ].map((st, i) => (
+                  <div key={st.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-950/50 border border-slate-850">
+                    <div>
+                      <h4 className="text-xs font-semibold text-white">{st.label}</h4>
+                      <p className="text-[11px] text-slate-500">{st.desc}</p>
+                    </div>
+                    <span className="text-[10px] font-mono text-emerald-400 uppercase font-semibold">
+                      {processingProgress >= (i + 1) * 14 ? 'Completed ✓' : 'Processing...'}
+                    </span>
+                  </div>
+                ))}
+
+                {processingProgress === 100 && (
+                  <div className="pt-4 flex justify-end">
+                    <button
+                      onClick={() => setActivePage('map')}
+                      className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs py-3 px-6 rounded-xl shadow-lg"
+                    >
+                      Launch WebGIS Viewer →
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* WEBGIS MAP & INSPECTOR */}
+          {activePage === 'map' && (
+            <div className="relative w-full flex-1 flex flex-col overflow-hidden">
+              {/* Action Bar */}
+              <div className="h-12 bg-slate-900/90 border-b border-slate-800 px-5 flex items-center justify-between z-20">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setActivePage('dashboard')} className="text-xs text-slate-400 hover:text-white">
+                    ← Dashboard
+                  </button>
+                  <span className="text-slate-700">|</span>
+                  <span className="text-xs font-bold text-white font-mono">{activeProject.name}</span>
+                  <span className="text-[10px] font-mono text-slate-500">({activeProject.crs})</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    121 Valid • 2 Review
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button onClick={handleExportGeoJSON} className="bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs py-1.5 px-3 rounded-lg shadow">
+                    Export GeoJSON
+                  </button>
+                  <button onClick={handleExportCSV} className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs py-1.5 px-3 rounded-lg border border-slate-700">
+                    CSV Report
+                  </button>
+                </div>
+              </div>
+
+              {/* Map Canvas */}
+              <div
+                className="relative flex-1 w-full h-full overflow-hidden bg-slate-950 select-none cursor-grab active:cursor-grabbing"
+                onMouseDown={(e) => {
+                  if (e.target.closest('.interactive-control')) return;
+                  setPan({ isPanning: true, x: e.clientX, y: e.clientY });
+                }}
+                onMouseMove={(e) => {
+                  if (!pan.isPanning) return;
+                  const dx = e.clientX - pan.x;
+                  const dy = e.clientY - pan.y;
+                  const scale = 0.000003 * Math.pow(2, 18 - viewport.zoom);
+                  setViewport(prev => ({
+                    ...prev,
+                    centerLng: prev.centerLng - dx * scale,
+                    centerLat: prev.centerLat + dy * scale
+                  }));
+                  setPan({ isPanning: true, x: e.clientX, y: e.clientY });
+                }}
+                onMouseUp={() => setPan({ isPanning: false, x: 0, y: 0 })}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  const delta = e.deltaY < 0 ? 0.25 : -0.25;
+                  setViewport(prev => ({ ...prev, zoom: Math.min(20, Math.max(14, prev.zoom + delta)) }));
+                }}
+              >
+                {/* Satellite Tile Simulation */}
+                {basemap === 'satellite' ? (
+                  <div 
+                    className="absolute inset-0 w-full h-full bg-cover bg-center opacity-85"
+                    style={{
+                      backgroundImage: `url('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/17/59828/94833')`,
+                      backgroundSize: '400% 400%',
+                      backgroundPosition: '52% 48%'
+                    }}
+                  >
+                    <div className="absolute inset-0 bg-slate-950/40"></div>
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 bg-slate-950"></div>
+                )}
+
+                {/* Drone Orthomosaic Overlay */}
+                {layers.drone && (
+                  <div
+                    className="absolute inset-12 border-2 border-dashed border-cyan-400/40 rounded-3xl pointer-events-none"
+                    style={{
+                      opacity: droneOpacity / 100,
+                      background: 'radial-gradient(ellipse at 50% 50%, rgba(16, 185, 129, 0.15), rgba(6, 182, 212, 0.2) 60%, transparent 85%)'
+                    }}
+                  >
+                    <span className="absolute top-3 left-4 text-[10px] font-mono text-cyan-300 bg-slate-950/80 px-2 py-0.5 rounded border border-cyan-500/30">
+                      Orthomosaic: Chennai_T_Nagar_GSD_3.5cm.tif
+                    </span>
+                  </div>
+                )}
+
+                {/* Vector SVG Layers */}
+                <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                  {/* Roads */}
+                  {layers.roads && roads.features.map(r => {
+                    const [p1, p2] = r.geometry.coordinates;
+                    const [x1, y1] = projectCoords(p1[0], p1[1]);
+                    const [x2, y2] = projectCoords(p2[0], p2[1]);
+                    const isArterial = r.properties.road_type === 'Arterial';
+                    return (
+                      <line
+                        key={r.id}
+                        x1={x1} y1={y1} x2={x2} y2={y2}
+                        stroke={isArterial ? '#f59e0b' : '#64748b'}
+                        strokeWidth={isArterial ? 8 : 5}
+                        strokeOpacity="0.75"
+                        strokeLinecap="round"
+                      />
+                    );
+                  })}
+
+                  {/* Parcels */}
+                  {layers.parcels && parcels.features.map(f => {
+                    const ring = f.geometry.coordinates[0];
+                    const pts = ring.map(([lng, lat]) => projectCoords(lng, lat).join(',')).join(' ');
+                    const isSelected = selectedParcel && selectedParcel.properties.parcel_id === f.properties.parcel_id;
+                    const isInvalid = !f.properties.geometry_valid || f.properties.issue;
+                    const isApproved = f.properties.survey_status === 'APPROVED';
+
+                    let stroke = '#3b82f6';
+                    let fill = 'rgba(59, 130, 246, 0.15)';
+
+                    if (layers.confidence) {
+                      const c = f.properties.confidence;
+                      if (c < 0.70) { stroke = '#ef4444'; fill = 'rgba(239, 68, 68, 0.35)'; }
+                      else if (c < 0.85) { stroke = '#f59e0b'; fill = 'rgba(245, 158, 11, 0.3)'; }
+                      else { stroke = '#10b981'; fill = 'rgba(16, 185, 129, 0.25)'; }
+                    } else if (layers.invalidGeometry && isInvalid) {
+                      stroke = '#ef4444'; fill = 'rgba(239, 68, 68, 0.4)';
+                    } else if (isApproved) {
+                      stroke = '#10b981'; fill = 'rgba(16, 185, 129, 0.15)';
+                    }
+
+                    if (isSelected) { stroke = '#fbbf24'; fill = 'rgba(251, 191, 36, 0.35)'; }
+
+                    const [cLng, cLat] = ring[0];
+                    const [lblX, lblY] = projectCoords(cLng + 0.00015, cLat + 0.00015);
+
+                    return (
+                      <g key={f.properties.parcel_id} className="pointer-events-auto cursor-pointer" onClick={() => setSelectedParcel(f)}>
+                        <polygon points={pts} fill={fill} stroke={stroke} strokeWidth={isSelected ? 3.5 : 1.5} />
+                        <text x={lblX} y={lblY} fill={isSelected ? '#fbbf24' : '#94a3b8'} fontSize="10" fontFamily="JetBrains Mono" fontWeight="bold" textAnchor="middle">
+                          {f.properties.parcel_id}
+                        </text>
+                        {layers.invalidGeometry && isInvalid && (
+                          <circle cx={lblX + 16} cy={lblY - 4} r="4.5" fill="#ef4444" stroke="#ffffff" strokeWidth="1" className="flag-pulse" />
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* Buildings */}
+                  {layers.buildings && buildings.features.map(b => {
+                    const ring = b.geometry.coordinates[0];
+                    const pts = ring.map(([lng, lat]) => projectCoords(lng, lat).join(',')).join(' ');
+                    return <polygon key={b.id} points={pts} fill="rgba(6, 182, 212, 0.6)" stroke="#06b6d4" strokeWidth="1" />;
+                  })}
+                </svg>
+
+                {/* Left Layer Controls */}
+                <div className="absolute left-5 top-5 z-20 w-64 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 backdrop-blur-md interactive-control">
+                  <div className="font-bold text-white text-xs mb-3">Cadastral Layers</div>
+                  <div className="space-y-2 text-xs">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-slate-200">Drone Orthomosaic</span>
+                      <input type="checkbox" checked={layers.drone} onChange={() => setLayers(p => ({ ...p, drone: !p.drone }))} />
+                    </label>
+                    {layers.drone && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-[10px] text-slate-400">Opacity</span>
+                        <input type="range" min="0" max="100" value={droneOpacity} onChange={e => setDroneOpacity(parseInt(e.target.value))} className="w-full h-1" />
+                        <span className="text-[10px] font-mono">{droneOpacity}%</span>
+                      </div>
+                    )}
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-slate-200">Parcels (Cadastre)</span>
+                      <input type="checkbox" checked={layers.parcels} onChange={() => setLayers(p => ({ ...p, parcels: !p.parcels }))} />
+                    </label>
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-slate-200">AI Buildings</span>
+                      <input type="checkbox" checked={layers.buildings} onChange={() => setLayers(p => ({ ...p, buildings: !p.buildings }))} />
+                    </label>
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-slate-200">Road Network</span>
+                      <input type="checkbox" checked={layers.roads} onChange={() => setLayers(p => ({ ...p, roads: !p.roads }))} />
+                    </label>
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-rose-400 font-semibold">Topology Defects</span>
+                      <input type="checkbox" checked={layers.invalidGeometry} onChange={() => setLayers(p => ({ ...p, invalidGeometry: !p.invalidGeometry }))} />
+                    </label>
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-emerald-400">Confidence Heatmap</span>
+                      <input type="checkbox" checked={layers.confidence} onChange={() => setLayers(p => ({ ...p, confidence: !p.confidence }))} />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Right Parcel Inspector (Cadastral Inspector) */}
+                {selectedParcel && (
+                  <div className="absolute right-5 top-5 z-20 w-80 bg-slate-900/95 border border-slate-800 rounded-2xl p-5 backdrop-blur-md interactive-control">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <span className="text-[10px] font-mono uppercase text-slate-500">Selected Feature</span>
+                        <h3 className="text-2xl font-black font-mono text-white">Parcel {selectedParcel.properties.parcel_id}</h3>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${selectedParcel.properties.geometry_valid ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                        {selectedParcel.properties.geometry_valid ? 'VALID' : 'REVIEW'}
+                      </span>
+                    </div>
+
+                    <div className="bg-slate-950 p-3 rounded-xl space-y-2 text-xs font-mono mb-4">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Area:</span>
+                        <span className="font-bold text-white">{selectedParcel.properties.area_m2} m²</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Building:</span>
+                        <span className="font-bold text-cyan-400">{selectedParcel.properties.building_m2} m²</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Confidence:</span>
+                        <span className="font-bold text-emerald-400">{Math.round(selectedParcel.properties.confidence * 100)}%</span>
+                      </div>
+                      <div className="flex justify-between border-t border-slate-800 pt-1">
+                        <span className="text-slate-400">Geometry:</span>
+                        <span className={`font-bold ${selectedParcel.properties.geometry_valid ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {selectedParcel.properties.geometry_valid ? 'VALID' : 'DEFECT'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {selectedParcel.properties.issue && (
+                      <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-2.5 text-[11px] text-amber-200 mb-4">
+                        <span className="font-bold block mb-0.5 text-amber-400">Topology Issue:</span>
+                        {selectedParcel.properties.issue}
+                      </div>
+                    )}
+
+                    {/* Verification Actions */}
+                    <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
+                      <button
+                        onClick={() => handleSplit(selectedParcel)}
+                        className="py-2 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-xl border border-slate-700"
+                      >
+                        Split Parcel
+                      </button>
+                      <button
+                        onClick={() => handleApprove(selectedParcel)}
+                        className="py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow"
+                      >
+                        Approve ✓
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Toast Notification */}
+          {toast && (
+            <div className="fixed bottom-6 right-6 z-50 bg-slate-900 border border-slate-700 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs font-semibold">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span>{toast}</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
