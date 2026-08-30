@@ -1,26 +1,22 @@
 from pathlib import Path
 
-from PIL import Image
+import rasterio
+from rasterio.windows import Window
 
 
-def tile_image(
+def tile_geotiff(
     image_path: str,
     output_dir: str,
     tile_size: int = 512,
     overlap: int = 64,
 ) -> int:
     """
-    Split an image into overlapping tiles.
+    Split a GeoTIFF into overlapping GeoTIFF tiles.
 
-    Args:
-        image_path: Path to the input image.
-        output_dir: Folder where tiles will be saved.
-        tile_size: Width/height of each square tile.
-        overlap: Number of pixels shared between neighboring tiles.
-
-    Returns:
-        Number of tiles created.
+    Geospatial metadata such as CRS and spatial transform
+    is preserved for every generated tile.
     """
+
     image_file = Path(image_path)
 
     if not image_file.is_file():
@@ -30,28 +26,56 @@ def tile_image(
         raise ValueError("tile_size must be greater than 0")
 
     if overlap < 0 or overlap >= tile_size:
-        raise ValueError("overlap must be >= 0 and smaller than tile_size")
+        raise ValueError(
+            "overlap must be >= 0 and smaller than tile_size"
+        )
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    image = Image.open(image_file).convert("RGB")
-
-    width, height = image.size
+    tile_count = 0
     step = tile_size - overlap
 
-    tile_count = 0
+    with rasterio.open(image_file) as src:
 
-    for top in range(0, height, step):
-        for left in range(0, width, step):
-            right = min(left + tile_size, width)
-            bottom = min(top + tile_size, height)
+        for top in range(0, src.height, step):
+            for left in range(0, src.width, step):
 
-            tile = image.crop((left, top, right, bottom))
+                width = min(tile_size, src.width - left)
+                height = min(tile_size, src.height - top)
 
-            tile_name = f"tile_{tile_count:04d}.png"
-            tile.save(output_path / tile_name)
+                window = Window(
+                    left,
+                    top,
+                    width,
+                    height,
+                )
 
-            tile_count += 1
+                tile_transform = src.window_transform(window)
+
+                tile_data = src.read(window=window)
+
+                profile = src.profile.copy()
+
+                profile.update(
+                    {
+                        "height": height,
+                        "width": width,
+                        "transform": tile_transform,
+                    }
+                )
+
+                tile_name = f"tile_{tile_count:04d}.tif"
+
+                tile_path = output_path / tile_name
+
+                with rasterio.open(
+                    tile_path,
+                    "w",
+                    **profile,
+                ) as dst:
+                    dst.write(tile_data)
+
+                tile_count += 1
 
     return tile_count
