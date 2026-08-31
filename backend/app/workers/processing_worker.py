@@ -274,6 +274,8 @@ def run_processing_job(job_id: int) -> None:
             job_id,
         )
 
+        db.rollback()
+
         try:
             job = get_processing_job(
                 db,

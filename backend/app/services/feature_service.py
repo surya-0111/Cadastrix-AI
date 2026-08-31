@@ -144,12 +144,13 @@ def get_project_features_in_bbox(
     max_lon: float,
     max_lat: float,
     limit: int = 1000,
-) -> list[Feature]:
+) -> tuple[list[Feature], bool]:
     """
     Return features from a project that intersect
     the supplied EPSG:4326 bounding box.
     """
 
+    query_limit = limit + 1
     query = text(
         """
         SELECT *
@@ -167,7 +168,7 @@ def get_project_features_in_bbox(
                 )
             )
         ORDER BY id
-        LIMIT :limit
+        LIMIT :query_limit
         """
     )
 
@@ -179,17 +180,22 @@ def get_project_features_in_bbox(
             "min_lat": min_lat,
             "max_lon": max_lon,
             "max_lat": max_lat,
-            "limit": limit,
+            "query_limit": query_limit,
         },
     )
 
     feature_ids = [
-        row.id
-        for row in result
+    row.id
+    for row in result
     ]
 
+    truncated = len(feature_ids) > limit
+
+    if truncated:
+        feature_ids = feature_ids[:limit]
+
     if not feature_ids:
-        return []
+        return [], truncated
 
     from sqlalchemy import select
 
@@ -197,6 +203,7 @@ def get_project_features_in_bbox(
         Feature.id.in_(feature_ids)
     ).order_by(Feature.id)
 
-    return list(
+    features =  list(
         db.scalars(statement).all()
     )
+    return features, truncated

@@ -1,6 +1,5 @@
 from typing import Any
-
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GeoJSONFeature(BaseModel):
@@ -17,3 +16,6 @@ class GeoJSONFeatureCollection(BaseModel):
 
     type: str = "FeatureCollection"
     features: list[GeoJSONFeature]
+    properties: dict[str, Any] = Field(
+        default_factory=dict
+    )

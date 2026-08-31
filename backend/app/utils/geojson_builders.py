@@ -58,12 +58,17 @@ def build_feature_feature(
 
 def build_feature_collection(
     features: list[GeoJSONFeature],
+    truncated: bool = False,
 ) -> GeoJSONFeatureCollection:
     """
-    Build a GeoJSON FeatureCollection.
+    Build a GeoJSON FeatureCollection with map metadata.
     """
 
     return GeoJSONFeatureCollection(
         type="FeatureCollection",
         features=features,
+        properties={
+            "count": len(features),
+            "truncated": truncated,
+        },
     )

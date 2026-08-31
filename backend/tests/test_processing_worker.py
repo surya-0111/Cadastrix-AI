@@ -257,3 +257,57 @@ def test_worker_processes_job_successfully() -> None:
     # --------------------------------------------------
 
     mock_db.close.assert_called_once()
+
+def test_worker_rolls_back_on_failure() -> None:
+    job = MagicMock(
+        spec=ProcessingJob
+    )
+
+    job.id = 1
+    job.project_id = 1
+    job.imagery_id = 1
+    job.status = ProcessingStatus.QUEUED.value
+    job.progress = 35
+
+    job.imagery = MagicMock()
+    job.imagery.file_path = "test/data/sample.tif"
+
+    mock_db = MagicMock()
+
+    mock_pipeline = MagicMock()
+
+    mock_pipeline.run_ml.side_effect = (
+        RuntimeError("ML processing failed")
+    )
+
+    with patch(
+        "app.workers.processing_worker.SessionLocal",
+        return_value=mock_db,
+    ), patch(
+        "app.workers.processing_worker.get_processing_job",
+        return_value=job,
+    ), patch(
+        "app.workers.processing_worker.update_processing_status",
+        side_effect=[
+            job,  # PREPROCESSING
+            job,  # AI_PROCESSING
+            job,  # FAILED
+        ],
+    ) as mock_update, patch(
+        "app.workers.processing_worker.PipelineService",
+        return_value=mock_pipeline,
+    ):
+
+        run_processing_job(1)
+
+    mock_db.rollback.assert_called_once()
+
+    assert mock_update.call_count == 3
+
+    assert (
+        mock_update.call_args_list[-1]
+        .kwargs["status"]
+        == ProcessingStatus.FAILED
+    )
+
+    mock_db.close.assert_called_once()
