@@ -105,3 +105,15 @@ def validate_geometry_type(
             f"'{geometry.geom_type}'. "
             f"Allowed types: {allowed}"
         )
+
+from shapely.geometry import mapping
+
+
+def geometry_to_geojson(
+    geometry,
+) -> dict:
+    """
+    Convert a Shapely geometry to a GeoJSON geometry mapping.
+    """
+
+    return mapping(geometry)

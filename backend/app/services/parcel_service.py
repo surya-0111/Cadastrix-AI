@@ -115,3 +115,35 @@ def ingest_parcels(
     except Exception:
         db.rollback()
         raise
+
+from sqlalchemy import select
+
+
+def get_project_parcels(
+    db: Session,
+    project_id: int,
+) -> list[Parcel]:
+    """Return all parcels belonging to a project."""
+
+    statement = (
+        select(Parcel)
+        .where(Parcel.project_id == project_id)
+        .order_by(Parcel.id.asc())
+    )
+
+    return list(
+        db.scalars(statement).all()
+    )
+
+
+def get_parcel(
+    db: Session,
+    parcel_id: int,
+) -> Parcel | None:
+    """Return a parcel by ID."""
+
+    statement = select(Parcel).where(
+        Parcel.id == parcel_id
+    )
+
+    return db.scalars(statement).first()

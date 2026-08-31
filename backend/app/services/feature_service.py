@@ -103,3 +103,35 @@ def ingest_features(
     except Exception:
         db.rollback()
         raise
+
+from sqlalchemy import select
+
+
+def get_project_features(
+    db: Session,
+    project_id: int,
+) -> list[Feature]:
+    """Return all features belonging to a project."""
+
+    statement = (
+        select(Feature)
+        .where(Feature.project_id == project_id)
+        .order_by(Feature.id.asc())
+    )
+
+    return list(
+        db.scalars(statement).all()
+    )
+
+
+def get_feature(
+    db: Session,
+    feature_id: int,
+) -> Feature | None:
+    """Return a feature by ID."""
+
+    statement = select(Feature).where(
+        Feature.id == feature_id
+    )
+
+    return db.scalars(statement).first()
