@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.processing import ProcessingStatus
 from app.db.session import SessionLocal
+from app.services.pipeline_service import PipelineService
 from app.services.processing_service import (
     get_processing_job,
     update_processing_status,
@@ -17,8 +18,8 @@ def run_processing_job(job_id: int) -> None:
     """
     Execute a processing job in the background.
 
-    This is the MVP worker implementation.
-    Actual AI and GIS operations will be plugged in later.
+    The actual ML and GIS implementations are currently
+    represented through PipelineService integration points.
     """
 
     logger.info("Starting processing job %s", job_id)
@@ -35,6 +36,10 @@ def run_processing_job(job_id: int) -> None:
             )
             return
 
+        # --------------------------------------------------
+        # 1. PREPROCESSING
+        # --------------------------------------------------
+
         logger.info(
             "Job %s: preprocessing",
             job_id,
@@ -48,6 +53,13 @@ def run_processing_job(job_id: int) -> None:
             current_step="Preparing imagery",
         )
 
+        # Create the pipeline after the job has been validated.
+        pipeline = PipelineService()
+
+        # --------------------------------------------------
+        # 2. AI PROCESSING
+        # --------------------------------------------------
+
         logger.info(
             "Job %s: AI processing",
             job_id,
@@ -57,9 +69,24 @@ def run_processing_job(job_id: int) -> None:
             db=db,
             job=job,
             status=ProcessingStatus.AI_PROCESSING,
-            progress=50,
+            progress=35,
             current_step="Running feature extraction",
         )
+
+        ml_result = pipeline.run_ml(
+            job.imagery.file_path,
+        )
+
+        logger.info(
+            "Job %s: extracted %s buildings and %s roads",
+            job_id,
+            ml_result.building_count,
+            ml_result.road_count,
+        )
+
+        # --------------------------------------------------
+        # 3. GIS PROCESSING
+        # --------------------------------------------------
 
         logger.info(
             "Job %s: GIS processing",
@@ -70,9 +97,23 @@ def run_processing_job(job_id: int) -> None:
             db=db,
             job=job,
             status=ProcessingStatus.GIS_PROCESSING,
-            progress=75,
+            progress=65,
             current_step="Generating geospatial features",
         )
+
+        gis_result = pipeline.run_gis(
+            ml_result,
+        )
+
+        logger.info(
+            "Job %s: generated %s parcels",
+            job_id,
+            gis_result.parcel_count,
+        )
+
+        # --------------------------------------------------
+        # 4. VALIDATION
+        # --------------------------------------------------
 
         logger.info(
             "Job %s: validation",
@@ -86,6 +127,13 @@ def run_processing_job(job_id: int) -> None:
             progress=90,
             current_step="Validating generated geometry",
         )
+
+        # Actual topology validation will be integrated here
+        # in the later GIS validation phase.
+
+        # --------------------------------------------------
+        # 5. COMPLETED
+        # --------------------------------------------------
 
         logger.info(
             "Job %s: completing",
@@ -112,7 +160,10 @@ def run_processing_job(job_id: int) -> None:
         )
 
         try:
-            job = get_processing_job(db, job_id)
+            job = get_processing_job(
+                db,
+                job_id,
+            )
 
             if job is not None:
                 update_processing_status(
