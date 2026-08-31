@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
+from app.services.validation_service import (
+    get_parcel_validation_detail,
+)
 from app.dependencies.database import get_database
 from app.schemas.validation import (
     ParcelReviewRequest,
@@ -11,7 +13,11 @@ from app.services.parcel_review_service import (
     get_parcel_review,
     review_parcel,
 )
-
+from app.schemas.validation import (
+    ParcelReviewRequest,
+    ParcelReviewResponse,
+    ParcelValidationDetailResponse,
+)
 
 router = APIRouter(
     tags=["Parcel Review"],
@@ -88,3 +94,26 @@ def review_parcel_endpoint(
         review_status=parcel.review_status,
         review_comment=parcel.review_comment,
     )
+
+@router.get(
+    "/parcels/{parcel_id}/validation",
+    response_model=ParcelValidationDetailResponse,
+)
+def get_parcel_validation_endpoint(
+    parcel_id: int,
+    db: Session = Depends(get_database),
+) -> ParcelValidationDetailResponse:
+    """Return complete validation details for a parcel."""
+
+    result = get_parcel_validation_detail(
+        db=db,
+        parcel_id=parcel_id,
+    )
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Parcel {parcel_id} not found",
+        )
+
+    return result

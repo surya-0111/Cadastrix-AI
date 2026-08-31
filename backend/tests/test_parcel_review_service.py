@@ -75,3 +75,33 @@ def test_already_reviewed_parcel_cannot_be_reviewed_again() -> None:
         )
 
     db.commit.assert_not_called()
+
+from app.schemas.validation import (
+    ParcelValidationDetailResponse,
+)
+
+
+def test_validation_detail_response() -> None:
+    response = ParcelValidationDetailResponse(
+        parcel_id=1,
+        parcel_code="P-001",
+        project_id=5,
+        processing_job_id=2,
+        validity_status="VALID",
+        review_status="PENDING",
+        review_comment=None,
+        geometry={
+            "type": "Polygon",
+            "coordinates": [],
+        },
+        geometry_errors=[],
+        measurement_errors=[],
+        is_duplicate=False,
+        overlap_area_m2=0.0,
+        review_required=False,
+    )
+
+    assert response.parcel_id == 1
+    assert response.validity_status == "VALID"
+    assert response.review_status == "PENDING"
+    assert response.review_required is False

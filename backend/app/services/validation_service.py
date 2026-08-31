@@ -11,7 +11,6 @@ from app.utils.geometry_validation import (
     validate_measurements,
     validate_polygon,
 )
-
 from app.schemas.validation import (
     DuplicateParcelPair,
     OverlapViolation,
@@ -26,20 +25,17 @@ from app.services.topology_service import (
     calculate_overlap_area,
     find_duplicate_parcels,
     find_overlapping_parcels,
-)
-from app.utils.geometry_validation import validate_polygon
-
-from sqlalchemy.orm import Session
-
-from app.services.topology_service import (
-    find_duplicate_parcels,
     find_parcel_gaps,
     find_significant_overlaps,
 )
-
+from app.utils.geometry_validation import validate_polygon
+from sqlalchemy.orm import Session
 from geoalchemy2.shape import to_shape
 from sqlalchemy import select
-
+from app.schemas.validation import (
+    ParcelValidationDetailResponse,
+)
+from app.utils.postgis_utils import postgis_to_geojson
 from app.models.parcel import Parcel
 from app.schemas.validation import (
     ParcelValidationItem,
@@ -611,3 +607,93 @@ def validate_and_persist_parcels(
     )
 
     return results
+
+def get_parcel_validation_detail(
+    db: Session,
+    parcel_id: int,
+) -> ParcelValidationDetailResponse | None:
+    """
+    Return complete validation and review information
+    for a single parcel.
+    """
+
+    statement = select(Parcel).where(
+        Parcel.id == parcel_id
+    )
+
+    parcel = db.scalars(
+        statement
+    ).first()
+
+    if parcel is None:
+        return None
+
+    geometry = to_shape(
+        parcel.geometry
+    )
+
+    geometry_errors = validate_polygon(
+        geometry
+    )
+
+    duplicate_pairs = find_duplicate_parcels(
+        db=db,
+        project_id=parcel.project_id,
+        processing_job_id=parcel.processing_job_id,
+    )
+
+    is_duplicate = any(
+        parcel.id in pair
+        for pair in duplicate_pairs
+    )
+
+    overlap_area_m2 = 0.0
+
+    overlapping_pairs = find_overlapping_parcels(
+        db=db,
+        project_id=parcel.project_id,
+        processing_job_id=parcel.processing_job_id,
+    )
+
+    for parcel_a, parcel_b in overlapping_pairs:
+        if parcel.id not in {
+            parcel_a,
+            parcel_b,
+        }:
+            continue
+
+        other_id = (
+            parcel_b
+            if parcel_a == parcel.id
+            else parcel_a
+        )
+
+        overlap_area_m2 += calculate_overlap_area(
+            db=db,
+            parcel_a=parcel.id,
+            parcel_b=other_id,
+        )
+
+    review_required = (
+        is_duplicate
+        or overlap_area_m2 > 1.0
+        or bool(geometry_errors)
+    )
+
+    return ParcelValidationDetailResponse(
+        parcel_id=parcel.id,
+        parcel_code=parcel.parcel_code,
+        project_id=parcel.project_id,
+        processing_job_id=parcel.processing_job_id,
+        validity_status=parcel.validity_status,
+        review_status=parcel.review_status,
+        review_comment=parcel.review_comment,
+        geometry=postgis_to_geojson(
+            parcel.geometry
+        ),
+        geometry_errors=geometry_errors,
+        measurement_errors=[],
+        is_duplicate=is_duplicate,
+        overlap_area_m2=overlap_area_m2,
+        review_required=review_required,
+    )

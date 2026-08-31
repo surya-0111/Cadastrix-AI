@@ -79,3 +79,26 @@ class ParcelReviewResponse(BaseModel):
     validity_status: str
     review_status: str
     review_comment: str | None
+
+class ParcelValidationDetailResponse(BaseModel):
+    """Complete validation and review information for one parcel."""
+
+    parcel_id: int
+    parcel_code: str
+
+    project_id: int
+    processing_job_id: int
+
+    validity_status: str
+    review_status: str
+    review_comment: str | None
+
+    geometry: dict[str, object]
+
+    geometry_errors: list[str]
+    measurement_errors: list[str]
+
+    is_duplicate: bool
+    overlap_area_m2: float
+
+    review_required: bool
