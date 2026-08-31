@@ -27,7 +27,10 @@ def test_worker_does_nothing_for_missing_job() -> None:
 
 
 def test_worker_processes_job_successfully() -> None:
-    # Mock ProcessingJob.
+    # --------------------------------------------------
+    # Mock ProcessingJob
+    # --------------------------------------------------
+
     job = MagicMock(spec=ProcessingJob)
 
     job.id = 1
@@ -40,46 +43,97 @@ def test_worker_processes_job_successfully() -> None:
     job.imagery = MagicMock()
     job.imagery.file_path = "test/data/sample.tif"
 
-    # Mock database session.
+    # Mock related project.
+    job.project = MagicMock()
+    job.project.id = 1
+    job.project.survey_boundary = None
+
+    # --------------------------------------------------
+    # Mock database session
+    # --------------------------------------------------
+
     mock_db = MagicMock()
 
-    # Mock ML result.
+    # --------------------------------------------------
+    # Mock ML result
+    # --------------------------------------------------
+
     mock_ml_result = MagicMock()
+
     mock_ml_result.building_output_path = (
         "test/data/buildings.geojson"
     )
+
     mock_ml_result.road_output_path = (
         "test/data/roads.geojson"
     )
+
     mock_ml_result.building_count = 10
     mock_ml_result.road_count = 2
     mock_ml_result.source_crs = "EPSG:4326"
 
-    # Mock GIS result.
+    # --------------------------------------------------
+    # Mock GIS result
+    # --------------------------------------------------
+
     mock_gis_result = MagicMock()
+
     mock_gis_result.parcel_output_path = (
         "test/data/parcels.geojson"
     )
+
     mock_gis_result.feature_output_path = (
         "test/data/features.geojson"
     )
+
     mock_gis_result.parcel_count = 8
     mock_gis_result.source_crs = "EPSG:4326"
 
-    # Mock pipeline.
-    mock_pipeline = MagicMock()
-    mock_pipeline.run_ml.return_value = mock_ml_result
-    mock_pipeline.run_gis.return_value = mock_gis_result
+    # --------------------------------------------------
+    # Mock PipelineService
+    # --------------------------------------------------
 
-    # Mock ingestion results.
+    mock_pipeline = MagicMock()
+
+    mock_pipeline.run_ml.return_value = (
+        mock_ml_result
+    )
+
+    mock_pipeline.run_gis.return_value = (
+        mock_gis_result
+    )
+
+    # --------------------------------------------------
+    # Mock feature ingestion
+    # --------------------------------------------------
+
     mock_features = [
         MagicMock(id=1),
         MagicMock(id=2),
     ]
 
+    # --------------------------------------------------
+    # Mock parcel ingestion
+    # --------------------------------------------------
+
     mock_parcels = [
         MagicMock(id=1),
     ]
+
+    # --------------------------------------------------
+    # Mock validation
+    # --------------------------------------------------
+
+    mock_validation_results = [
+        MagicMock(
+            validity_status="VALID",
+            overlap_area_m2=0.0,
+        ),
+    ]
+
+    # --------------------------------------------------
+    # Execute worker with all dependencies mocked
+    # --------------------------------------------------
 
     with patch(
         "app.workers.processing_worker.SessionLocal",
@@ -105,11 +159,17 @@ def test_worker_processes_job_successfully() -> None:
     ) as mock_ingest_features, patch(
         "app.workers.processing_worker.ingest_parcels",
         return_value=mock_parcels,
-    ) as mock_ingest_parcels:
+    ) as mock_ingest_parcels, patch(
+        "app.workers.processing_worker.validate_and_persist_parcels",
+        return_value=mock_validation_results,
+    ) as mock_validate_parcels:
 
         run_processing_job(1)
 
-    # Five state transitions should occur.
+    # --------------------------------------------------
+    # Verify five processing state transitions
+    # --------------------------------------------------
+
     assert mock_update.call_count == 5
 
     calls = mock_update.call_args_list
@@ -139,33 +199,61 @@ def test_worker_processes_job_successfully() -> None:
         == ProcessingStatus.COMPLETED
     )
 
-    # Verify ML stage.
+    # --------------------------------------------------
+    # Verify ML stage
+    # --------------------------------------------------
+
     mock_pipeline.run_ml.assert_called_once_with(
         "test/data/sample.tif"
     )
 
-    # Verify feature ingestion.
+    # --------------------------------------------------
+    # Verify feature ingestion
+    # --------------------------------------------------
+
     mock_ingest_features.assert_called_once_with(
         db=mock_db,
-        geojson_path=mock_ml_result.building_output_path,
+        geojson_path=(
+            mock_ml_result.building_output_path
+        ),
         project_id=1,
         processing_job_id=1,
         source_crs="EPSG:4326",
     )
 
-    # Verify GIS stage.
+    # --------------------------------------------------
+    # Verify GIS stage
+    # --------------------------------------------------
+
     mock_pipeline.run_gis.assert_called_once_with(
         mock_ml_result
     )
 
-    # Verify parcel ingestion.
+    # --------------------------------------------------
+    # Verify parcel ingestion
+    # --------------------------------------------------
+
     mock_ingest_parcels.assert_called_once_with(
         db=mock_db,
-        geojson_path=mock_gis_result.parcel_output_path,
+        geojson_path=(
+            mock_gis_result.parcel_output_path
+        ),
         project_id=1,
         processing_job_id=1,
         source_crs="EPSG:4326",
     )
 
-    # Database session must be closed.
+    # --------------------------------------------------
+    # Verify validation
+    # --------------------------------------------------
+
+    mock_validate_parcels.assert_called_once_with(
+        db=mock_db,
+        processing_job_id=1,
+    )
+
+    # --------------------------------------------------
+    # Verify database session cleanup
+    # --------------------------------------------------
+
     mock_db.close.assert_called_once()

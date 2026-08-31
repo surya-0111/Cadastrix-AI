@@ -64,3 +64,18 @@ class ParcelValidationItem(BaseModel):
 
     is_duplicate: bool
     overlap_area_m2: float
+
+class ParcelReviewRequest(BaseModel):
+    """Human review decision for a parcel."""
+
+    review_status: str
+    review_comment: str | None = None
+
+class ParcelReviewResponse(BaseModel):
+    """Response after a human review decision."""
+
+    parcel_id: int
+    parcel_code: str
+    validity_status: str
+    review_status: str
+    review_comment: str | None

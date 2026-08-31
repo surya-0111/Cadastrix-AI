@@ -17,6 +17,17 @@ from app.schemas.validation import (
     OverlapViolation,
     ParcelValidationReport,
 )
+from geoalchemy2.shape import to_shape
+from sqlalchemy import select
+
+from app.models.parcel import Parcel
+from app.schemas.validation import ParcelValidationItem
+from app.services.topology_service import (
+    calculate_overlap_area,
+    find_duplicate_parcels,
+    find_overlapping_parcels,
+)
+from app.utils.geometry_validation import validate_polygon
 
 from sqlalchemy.orm import Session
 
@@ -191,14 +202,16 @@ def validate_processing_job(
         gap_areas_m2=gap_areas_m2,
     )
 
+
+
+
 def validate_single_parcel(
     db: Session,
     parcel: Parcel,
     processing_job_id: int,
 ) -> ParcelValidationItem:
     """
-    Validate one parcel and determine its machine
-    validity and review state.
+    Validate one parcel and produce its validation result.
     """
 
     geometry = to_shape(
@@ -209,21 +222,14 @@ def validate_single_parcel(
         geometry
     )
 
-    # Measurement validation will be completed
-    # once project-specific measurement CRS handling
-    # is integrated.
-    measurement_errors: list[str] = []
-
     duplicate_pairs = find_duplicate_parcels(
         db=db,
         project_id=parcel.project_id,
         processing_job_id=processing_job_id,
     )
 
-    parcel_id = parcel.id
-
     is_duplicate = any(
-        parcel_id in pair
+        parcel.id in pair
         for pair in duplicate_pairs
     )
 
@@ -236,48 +242,41 @@ def validate_single_parcel(
     )
 
     for parcel_a, parcel_b in overlapping_pairs:
-        if parcel_a != parcel_id and parcel_b != parcel_id:
+        if parcel.id not in {
+            parcel_a,
+            parcel_b,
+        }:
             continue
 
         other_id = (
             parcel_b
-            if parcel_a == parcel_id
+            if parcel_a == parcel.id
             else parcel_a
         )
 
         overlap_area_m2 += calculate_overlap_area(
             db=db,
-            parcel_a=parcel_id,
+            parcel_a=parcel.id,
             parcel_b=other_id,
         )
 
-    invalid = bool(
+    measurement_errors: list[str] = []
+
+    is_invalid = bool(
         geometry_errors
         or measurement_errors
         or is_duplicate
     )
 
-    review_required = (
-        overlap_area_m2 > 1.0
-    )
-
-    validity_status = (
-        "INVALID"
-        if invalid
-        else "VALID"
-    )
-
-    review_status = (
-        "PENDING"
-        if review_required or invalid
-        else "PENDING"
-    )
-
     return ParcelValidationItem(
         parcel_id=parcel.id,
         parcel_code=parcel.parcel_code,
-        validity_status=validity_status,
-        review_status=review_status,
+        validity_status=(
+            "INVALID"
+            if is_invalid
+            else "VALID"
+        ),
+        review_status="PENDING",
         geometry_errors=geometry_errors,
         measurement_errors=measurement_errors,
         is_duplicate=is_duplicate,
@@ -419,3 +418,196 @@ def persist_parcel_validation(
         )
 
     db.commit()
+
+def validate_parcels_for_job(
+    db: Session,
+    processing_job_id: int,
+) -> list[ParcelValidationItem]:
+    """
+    Validate all parcels belonging to a processing job.
+    """
+
+    statement = (
+        select(Parcel)
+        .where(
+            Parcel.processing_job_id
+            == processing_job_id
+        )
+        .order_by(Parcel.id)
+    )
+
+    parcels = list(
+        db.scalars(statement).all()
+    )
+
+    if not parcels:
+        return []
+
+    project_id = parcels[0].project_id
+
+    duplicate_pairs = find_duplicate_parcels(
+        db=db,
+        project_id=project_id,
+        processing_job_id=processing_job_id,
+    )
+
+    overlapping_pairs = find_overlapping_parcels(
+        db=db,
+        project_id=project_id,
+        processing_job_id=processing_job_id,
+    )
+
+    duplicate_ids = {
+        parcel_id
+        for pair in duplicate_pairs
+        for parcel_id in pair
+    }
+
+    overlap_map: dict[int, float] = {}
+
+    for parcel_a, parcel_b in overlapping_pairs:
+        overlap_area_m2 = calculate_overlap_area(
+            db=db,
+            parcel_a=parcel_a,
+            parcel_b=parcel_b,
+        )
+
+        overlap_map[parcel_a] = (
+            overlap_map.get(
+                parcel_a,
+                0.0,
+            )
+            + overlap_area_m2
+        )
+
+        overlap_map[parcel_b] = (
+            overlap_map.get(
+                parcel_b,
+                0.0,
+            )
+            + overlap_area_m2
+        )
+
+    results: list[ParcelValidationItem] = []
+
+    for parcel in parcels:
+        geometry = to_shape(
+            parcel.geometry
+        )
+
+        geometry_errors = validate_polygon(
+            geometry
+        )
+
+        is_duplicate = (
+            parcel.id in duplicate_ids
+        )
+
+        overlap_area_m2 = overlap_map.get(
+            parcel.id,
+            0.0,
+        )
+
+        measurement_errors: list[str] = []
+
+        is_invalid = bool(
+            geometry_errors
+            or measurement_errors
+            or is_duplicate
+        )
+
+        results.append(
+            ParcelValidationItem(
+                parcel_id=parcel.id,
+                parcel_code=parcel.parcel_code,
+                validity_status=(
+                    "INVALID"
+                    if is_invalid
+                    else "VALID"
+                ),
+                review_status=(
+                    "PENDING"
+                    if (
+                        overlap_area_m2 > 1.0
+                        or is_duplicate
+                        or geometry_errors
+                        or measurement_errors
+                    )
+                    else "PENDING"
+                ),
+                geometry_errors=geometry_errors,
+                measurement_errors=measurement_errors,
+                is_duplicate=is_duplicate,
+                overlap_area_m2=overlap_area_m2,
+            )
+        )
+
+    return results
+
+def persist_parcel_validation(
+    db: Session,
+    results: list[ParcelValidationItem],
+) -> None:
+    """
+    Persist parcel validation states into PostgreSQL.
+    """
+
+    if not results:
+        return
+
+    parcel_ids = [
+        result.parcel_id
+        for result in results
+    ]
+
+    statement = select(Parcel).where(
+        Parcel.id.in_(parcel_ids)
+    )
+
+    parcels = list(
+        db.scalars(statement).all()
+    )
+
+    parcels_by_id = {
+        parcel.id: parcel
+        for parcel in parcels
+    }
+
+    for result in results:
+        parcel = parcels_by_id.get(
+            result.parcel_id
+        )
+
+        if parcel is None:
+            continue
+
+        parcel.validity_status = (
+            result.validity_status
+        )
+
+        parcel.review_status = (
+            result.review_status
+        )
+
+    db.commit()
+
+def validate_and_persist_parcels(
+    db: Session,
+    processing_job_id: int,
+) -> list[ParcelValidationItem]:
+    """
+    Validate all parcels for a processing job and
+    persist their machine-generated status.
+    """
+
+    results = validate_parcels_for_job(
+        db=db,
+        processing_job_id=processing_job_id,
+    )
+
+    persist_parcel_validation(
+        db=db,
+        results=results,
+    )
+
+    return results

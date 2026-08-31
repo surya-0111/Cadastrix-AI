@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
-
+from sqlalchemy import Text
 from geoalchemy2 import Geometry
 from sqlalchemy import (
     DateTime,
@@ -94,6 +94,11 @@ class Parcel(Base):
             spatial_index=True,
         ),
         nullable=False,
+    )
+
+    review_comment: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

@@ -1,14 +1,18 @@
 import logging
 
 from sqlalchemy.orm import Session
-from app.services.feature_service import ingest_features
-from app.services.parcel_service import ingest_parcels
+
 from app.core.processing import ProcessingStatus
 from app.db.session import SessionLocal
+from app.services.feature_service import ingest_features
+from app.services.parcel_service import ingest_parcels
 from app.services.pipeline_service import PipelineService
 from app.services.processing_service import (
     get_processing_job,
     update_processing_status,
+)
+from app.services.validation_service import (
+    validate_and_persist_parcels,
 )
 
 
@@ -19,16 +23,45 @@ def run_processing_job(job_id: int) -> None:
     """
     Execute a processing job in the background.
 
-    The actual ML and GIS implementations are currently
-    represented through PipelineService integration points.
+    Processing flow:
+
+        QUEUED
+            ↓
+        PREPROCESSING
+            ↓
+        AI_PROCESSING
+            ↓
+        Feature ingestion
+            ↓
+        GIS_PROCESSING
+            ↓
+        Parcel ingestion
+            ↓
+        VALIDATING
+            ↓
+        Parcel validation
+            ↓
+        COMPLETED
+
+    Any unexpected exception moves the job to FAILED.
     """
 
-    logger.info("Starting processing job %s", job_id)
+    logger.info(
+        "Starting processing job %s",
+        job_id,
+    )
 
     db: Session = SessionLocal()
 
     try:
-        job = get_processing_job(db, job_id)
+        # --------------------------------------------------
+        # Load processing job
+        # --------------------------------------------------
+
+        job = get_processing_job(
+            db,
+            job_id,
+        )
 
         if job is None:
             logger.error(
@@ -54,7 +87,7 @@ def run_processing_job(job_id: int) -> None:
             current_step="Preparing imagery",
         )
 
-        # Create the pipeline after the job has been validated.
+        # Create the pipeline once and reuse it.
         pipeline = PipelineService()
 
         # --------------------------------------------------
@@ -175,7 +208,39 @@ def run_processing_job(job_id: int) -> None:
             current_step="Validating generated geometry",
         )
 
-        # Topology validation will be added later.
+        # IMPORTANT:
+        # Validation is performed exactly once and only here,
+        # after parcel ingestion has completed.
+        validation_results = validate_and_persist_parcels(
+            db=db,
+            processing_job_id=job.id,
+        )
+
+        logger.info(
+            "Job %s: validated %s parcels",
+            job_id,
+            len(validation_results),
+        )
+
+        invalid_count = sum(
+            1
+            for result in validation_results
+            if result.validity_status == "INVALID"
+        )
+
+        review_count = sum(
+            1
+            for result in validation_results
+            if result.overlap_area_m2 > 1.0
+        )
+
+        logger.info(
+            "Job %s: %s invalid parcels, "
+            "%s parcels with overlap requiring review",
+            job_id,
+            invalid_count,
+            review_count,
+        )
 
         # --------------------------------------------------
         # 5. COMPLETED
@@ -194,7 +259,16 @@ def run_processing_job(job_id: int) -> None:
             current_step="Processing completed",
         )
 
+        logger.info(
+            "Processing job %s completed successfully",
+            job_id,
+        )
+
     except Exception as exc:
+        # --------------------------------------------------
+        # FAILURE HANDLING
+        # --------------------------------------------------
+
         logger.exception(
             "Processing job %s failed",
             job_id,
@@ -223,4 +297,5 @@ def run_processing_job(job_id: int) -> None:
             )
 
     finally:
+        # Always release the database connection.
         db.close()
