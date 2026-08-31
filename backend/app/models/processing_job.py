@@ -15,7 +15,9 @@ from app.db.session import Base
 
 
 if TYPE_CHECKING:
+    from app.models.feature import Feature
     from app.models.imagery import Imagery
+    from app.models.parcel import Parcel
     from app.models.project import Project
 
 
@@ -47,6 +49,16 @@ class ProcessingJob(Base):
         ),
         nullable=False,
         index=True,
+    )
+
+    features: Mapped[list["Feature"]] = relationship(
+        back_populates="processing_job",
+        cascade="all, delete-orphan",
+    )
+
+    parcels: Mapped[list["Parcel"]] = relationship(
+        back_populates="processing_job",
+        cascade="all, delete-orphan",
     )
 
     status: Mapped[str] = mapped_column(
