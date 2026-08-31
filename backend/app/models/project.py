@@ -1,5 +1,5 @@
 from datetime import datetime
-
+from geoalchemy2 import Geometry
 from sqlalchemy import DateTime, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -65,6 +65,15 @@ class Project(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    survey_boundary = mapped_column(
+        Geometry(
+        geometry_type="POLYGON",
+        srid=4326,
+        spatial_index=True,
+        ),
+        nullable=True,
     )
 
     def __repr__(self) -> str:

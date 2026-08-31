@@ -1,0 +1,133 @@
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+
+def find_duplicate_parcels(
+    db: Session,
+    project_id: int,
+) -> list[tuple[int, int]]:
+    """
+    Find pairs of parcels within a project that have equal geometry.
+
+    Returns:
+        List of (parcel_id_a, parcel_id_b).
+    """
+
+    query = text(
+        """
+        SELECT
+            p1.id AS parcel_a,
+            p2.id AS parcel_b
+        FROM parcels p1
+        JOIN parcels p2
+            ON p1.id < p2.id
+        WHERE
+            p1.project_id = :project_id
+            AND p2.project_id = :project_id
+            AND ST_Equals(
+                p1.geometry,
+                p2.geometry
+            )
+        ORDER BY
+            p1.id,
+            p2.id
+        """
+    )
+
+    result = db.execute(
+        query,
+        {
+            "project_id": project_id,
+        },
+    )
+
+    return [
+        (row.parcel_a, row.parcel_b)
+        for row in result
+    ]
+
+
+def find_overlapping_parcels(
+    db: Session,
+    project_id: int,
+) -> list[tuple[int, int]]:
+    """
+    Find pairs of parcels within a project that overlap.
+
+    Returns:
+        List of (parcel_id_a, parcel_id_b).
+    """
+
+    query = text(
+        """
+        SELECT
+            p1.id AS parcel_a,
+            p2.id AS parcel_b
+        FROM parcels p1
+        JOIN parcels p2
+            ON p1.id < p2.id
+        WHERE
+            p1.project_id = :project_id
+            AND p2.project_id = :project_id
+            AND ST_Overlaps(
+                p1.geometry,
+                p2.geometry
+            )
+        ORDER BY
+            p1.id,
+            p2.id
+        """
+    )
+
+    result = db.execute(
+        query,
+        {
+            "project_id": project_id,
+        },
+    )
+
+    return [
+        (row.parcel_a, row.parcel_b)
+        for row in result
+    ]
+
+def calculate_overlap_area(
+    db: Session,
+    parcel_a: int,
+    parcel_b: int,
+) -> float:
+    """
+    Calculate the overlap area in square metres.
+
+    Geometries are stored in EPSG:4326, so transform
+    the intersection into a projected CRS before measuring.
+    """
+
+    query = text(
+        """
+        SELECT
+            ST_Area(
+                ST_Transform(
+                    ST_Intersection(
+                        p1.geometry,
+                        p2.geometry
+                    ),
+                    32643
+                )
+            )
+        FROM parcels p1
+        JOIN parcels p2
+            ON p1.id = :parcel_a
+           AND p2.id = :parcel_b
+        """
+    )
+
+    result = db.execute(
+        query,
+        {
+            "parcel_a": parcel_a,
+            "parcel_b": parcel_b,
+        },
+    )
+
+    return float(result.scalar_one())
