@@ -3,7 +3,7 @@ from typing import Any
 
 from geoalchemy2 import WKTElement
 from sqlalchemy.orm import Session
-
+from sqlalchemy import text
 from app.models.feature import Feature
 from app.utils.crs_utils import transform_geometry
 from app.utils.geojson_utils import (
@@ -135,3 +135,65 @@ def get_feature(
     )
 
     return db.scalars(statement).first()
+
+def get_project_features_in_bbox(
+    db: Session,
+    project_id: int,
+    min_lon: float,
+    min_lat: float,
+    max_lon: float,
+    max_lat: float,
+) -> list[Feature]:
+    """
+    Return features from a project that intersect
+    the supplied EPSG:4326 bounding box.
+    """
+
+    query = text(
+        """
+        SELECT *
+        FROM features
+        WHERE
+            project_id = :project_id
+            AND ST_Intersects(
+                geometry,
+                ST_MakeEnvelope(
+                    :min_lon,
+                    :min_lat,
+                    :max_lon,
+                    :max_lat,
+                    4326
+                )
+            )
+        ORDER BY id
+        """
+    )
+
+    result = db.execute(
+        query,
+        {
+            "project_id": project_id,
+            "min_lon": min_lon,
+            "min_lat": min_lat,
+            "max_lon": max_lon,
+            "max_lat": max_lat,
+        },
+    )
+
+    feature_ids = [
+        row.id
+        for row in result
+    ]
+
+    if not feature_ids:
+        return []
+
+    from sqlalchemy import select
+
+    statement = select(Feature).where(
+        Feature.id.in_(feature_ids)
+    ).order_by(Feature.id)
+
+    return list(
+        db.scalars(statement).all()
+    )

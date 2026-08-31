@@ -3,7 +3,8 @@ from typing import Any
 
 from geoalchemy2 import WKTElement
 from sqlalchemy.orm import Session
-
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 from app.models.parcel import Parcel
 from app.utils.crs_utils import transform_geometry
 from app.utils.geojson_utils import (
@@ -147,3 +148,66 @@ def get_parcel(
     )
 
     return db.scalars(statement).first()
+
+
+def get_project_parcels_in_bbox(
+    db: Session,
+    project_id: int,
+    min_lon: float,
+    min_lat: float,
+    max_lon: float,
+    max_lat: float,
+) -> list[Parcel]:
+    """
+    Return parcels from a project that intersect
+    the supplied EPSG:4326 bounding box.
+    """
+
+    query = text(
+        """
+        SELECT *
+        FROM parcels
+        WHERE
+            project_id = :project_id
+            AND ST_Intersects(
+                geometry,
+                ST_MakeEnvelope(
+                    :min_lon,
+                    :min_lat,
+                    :max_lon,
+                    :max_lat,
+                    4326
+                )
+            )
+        ORDER BY id
+        """
+    )
+
+    result = db.execute(
+        query,
+        {
+            "project_id": project_id,
+            "min_lon": min_lon,
+            "min_lat": min_lat,
+            "max_lon": max_lon,
+            "max_lat": max_lat,
+        },
+    )
+
+    parcel_ids = [
+        row.id
+        for row in result
+    ]
+
+    if not parcel_ids:
+        return []
+
+    from sqlalchemy import select
+
+    statement = select(Parcel).where(
+        Parcel.id.in_(parcel_ids)
+    ).order_by(Parcel.id)
+
+    return list(
+        db.scalars(statement).all()
+    )
