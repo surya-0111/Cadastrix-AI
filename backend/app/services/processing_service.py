@@ -5,6 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.models.imagery import Imagery
 from app.models.processing_job import ProcessingJob
+from app.core.processing import (
+    ProcessingStatus,
+    validate_transition,
+)
 
 
 def create_processing_job(
@@ -62,26 +66,43 @@ def get_project_processing_jobs(
 def update_processing_status(
     db: Session,
     job: ProcessingJob,
-    status: str,
+    status: ProcessingStatus,
     progress: int,
     current_step: str | None = None,
     error_message: str | None = None,
 ) -> ProcessingJob:
     """
-    Update processing state.
-
-    This will be used later by the background worker.
+    Safely transition a processing job to a new state.
     """
 
-    job.status = status
+    current_status = ProcessingStatus(job.status)
+
+    validate_transition(
+        current=current_status,
+        target=status,
+    )
+
+    if not 0 <= progress <= 100:
+        raise ValueError(
+            "Processing progress must be between 0 and 100"
+        )
+
+    job.status = status.value
     job.progress = progress
     job.current_step = current_step
     job.error_message = error_message
 
-    if status == "PREPROCESSING" and job.started_at is None:
+    if (
+        status == ProcessingStatus.PREPROCESSING
+        and job.started_at is None
+    ):
         job.started_at = datetime.now(timezone.utc)
 
-    if status in {"COMPLETED", "FAILED", "CANCELLED"}:
+    if status in {
+        ProcessingStatus.COMPLETED,
+        ProcessingStatus.FAILED,
+        ProcessingStatus.CANCELLED,
+    }:
         job.completed_at = datetime.now(timezone.utc)
 
     db.commit()
