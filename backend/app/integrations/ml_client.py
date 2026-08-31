@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 
 @dataclass
@@ -11,6 +10,7 @@ class MLResult:
     road_output_path: str
     building_count: int
     road_count: int
+    source_crs: str
 
 
 class MLClient:
@@ -20,8 +20,12 @@ class MLClient:
     This is currently a mock implementation.
     """
 
-    def __init__(self, output_dir: str | Path = "./storage/mock/ml") -> None:
+    def __init__(
+        self,
+        output_dir: str | Path = "./storage/mock/ml",
+    ) -> None:
         self.output_dir = Path(output_dir)
+
         self.output_dir.mkdir(
             parents=True,
             exist_ok=True,
@@ -42,11 +46,40 @@ class MLClient:
                 f"Imagery file not found: {path}"
             )
 
-        building_output = self.output_dir / "buildings.geojson"
-        road_output = self.output_dir / "roads.geojson"
+        building_output = (
+            self.output_dir / "buildings.geojson"
+        )
+
+        road_output = (
+            self.output_dir / "roads.geojson"
+        )
 
         building_output.write_text(
-            '{"type":"FeatureCollection","features":[]}',
+            """
+            {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                "type": "Feature",
+                "properties": {
+                    "feature_type": "BUILDING",
+                    "confidence": 0.95
+                },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                [
+                [77.5940, 12.9710],
+                [77.5950, 12.9710],
+                [77.5950, 12.9720],
+                [77.5940, 12.9710]
+              ]
+            ]
+          }
+        }
+      ]
+    }
+    """,
             encoding="utf-8",
         )
 
@@ -56,8 +89,13 @@ class MLClient:
         )
 
         return MLResult(
-            building_output_path=str(building_output),
-            road_output_path=str(road_output),
-            building_count=0,
+            building_output_path=str(
+                building_output
+            ),
+            road_output_path=str(
+                road_output
+            ),
+            building_count=1,
             road_count=0,
+            source_crs="EPSG:4326",
         )

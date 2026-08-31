@@ -9,6 +9,7 @@ class GISResult:
     parcel_output_path: str
     feature_output_path: str
     parcel_count: int
+    source_crs: str
 
 
 class GISClient:
@@ -18,8 +19,12 @@ class GISClient:
     This is currently a mock implementation.
     """
 
-    def __init__(self, output_dir: str | Path = "./storage/mock/gis") -> None:
+    def __init__(
+        self,
+        output_dir: str | Path = "./storage/mock/gis",
+    ) -> None:
         self.output_dir = Path(output_dir)
+
         self.output_dir.mkdir(
             parents=True,
             exist_ok=True,
@@ -47,11 +52,42 @@ class GISClient:
                 f"Road output not found: {road_file}"
             )
 
-        parcel_output = self.output_dir / "parcels.geojson"
-        feature_output = self.output_dir / "features.geojson"
+        parcel_output = (
+            self.output_dir / "parcels.geojson"
+        )
+
+        feature_output = (
+            self.output_dir / "features.geojson"
+        )
 
         parcel_output.write_text(
-            '{"type":"FeatureCollection","features":[]}',
+            """
+            {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                "type": "Feature",
+                "properties": {
+                "parcel_code": "P-MOCK-001",
+                "confidence": 0.92,
+                "area_m2": 10000.0,
+                "perimeter_m": 400.0
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                [
+                [77.5940, 12.9710],
+                [77.6040, 12.9710],
+                [77.6040, 12.9810],
+                [77.5940, 12.9710]
+              ]
+            ]
+          }
+        }
+      ]
+    }
+    """,
             encoding="utf-8",
         )
 
@@ -61,7 +97,12 @@ class GISClient:
         )
 
         return GISResult(
-            parcel_output_path=str(parcel_output),
-            feature_output_path=str(feature_output),
-            parcel_count=0,
+            parcel_output_path=str(
+                parcel_output
+            ),
+            feature_output_path=str(
+                feature_output
+            ),
+            parcel_count=1,
+            source_crs="EPSG:4326",
         )

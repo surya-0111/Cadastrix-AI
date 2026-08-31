@@ -1,16 +1,13 @@
-from dataclasses import dataclass
 from pathlib import Path
 
-from app.integrations.gis_client import GISClient, GISResult
-from app.integrations.ml_client import MLClient, MLResult
-
-
-@dataclass
-class PipelineContext:
-    """Intermediate processing data passed between stages."""
-
-    ml_result: MLResult | None = None
-    gis_result: GISResult | None = None
+from app.integrations.gis_client import (
+    GISClient,
+    GISResult,
+)
+from app.integrations.ml_client import (
+    MLClient,
+    MLResult,
+)
 
 
 class PipelineService:

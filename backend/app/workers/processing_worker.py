@@ -1,7 +1,8 @@
 import logging
 
 from sqlalchemy.orm import Session
-
+from app.services.feature_service import ingest_features
+from app.services.parcel_service import ingest_parcels
 from app.core.processing import ProcessingStatus
 from app.db.session import SessionLocal
 from app.services.pipeline_service import PipelineService
@@ -85,6 +86,29 @@ def run_processing_job(job_id: int) -> None:
         )
 
         # --------------------------------------------------
+        # Store AI-generated features
+        # --------------------------------------------------
+
+        logger.info(
+            "Job %s: storing AI-generated features",
+            job_id,
+        )
+
+        features = ingest_features(
+            db=db,
+            geojson_path=ml_result.building_output_path,
+            project_id=job.project_id,
+            processing_job_id=job.id,
+            source_crs=ml_result.source_crs,
+        )
+
+        logger.info(
+            "Job %s: stored %s features",
+            job_id,
+            len(features),
+        )
+
+        # --------------------------------------------------
         # 3. GIS PROCESSING
         # --------------------------------------------------
 
@@ -112,6 +136,29 @@ def run_processing_job(job_id: int) -> None:
         )
 
         # --------------------------------------------------
+        # Store generated parcels
+        # --------------------------------------------------
+
+        logger.info(
+            "Job %s: storing generated parcels",
+            job_id,
+        )
+
+        parcels = ingest_parcels(
+            db=db,
+            geojson_path=gis_result.parcel_output_path,
+            project_id=job.project_id,
+            processing_job_id=job.id,
+            source_crs=gis_result.source_crs,
+        )
+
+        logger.info(
+            "Job %s: stored %s parcels",
+            job_id,
+            len(parcels),
+        )
+
+        # --------------------------------------------------
         # 4. VALIDATION
         # --------------------------------------------------
 
@@ -128,8 +175,7 @@ def run_processing_job(job_id: int) -> None:
             current_step="Validating generated geometry",
         )
 
-        # Actual topology validation will be integrated here
-        # in the later GIS validation phase.
+        # Topology validation will be added later.
 
         # --------------------------------------------------
         # 5. COMPLETED
@@ -146,11 +192,6 @@ def run_processing_job(job_id: int) -> None:
             status=ProcessingStatus.COMPLETED,
             progress=100,
             current_step="Processing completed",
-        )
-
-        logger.info(
-            "Processing job %s completed successfully",
-            job_id,
         )
 
     except Exception as exc:
