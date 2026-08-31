@@ -33,3 +33,14 @@ def test_invalid_latitude_order() -> None:
             max_lon=77.60,
             max_lat=12.97,
         )
+
+def test_bbox_limit_must_be_positive() -> None:
+    from fastapi import Query
+
+    limit = Query(
+        1000,
+        ge=1,
+        le=5000,
+    )
+
+    assert limit.default == 1000

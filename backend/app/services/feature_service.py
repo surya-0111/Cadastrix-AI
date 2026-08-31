@@ -143,6 +143,7 @@ def get_project_features_in_bbox(
     min_lat: float,
     max_lon: float,
     max_lat: float,
+    limit: int = 1000,
 ) -> list[Feature]:
     """
     Return features from a project that intersect
@@ -166,6 +167,7 @@ def get_project_features_in_bbox(
                 )
             )
         ORDER BY id
+        LIMIT :limit
         """
     )
 
@@ -177,6 +179,7 @@ def get_project_features_in_bbox(
             "min_lat": min_lat,
             "max_lon": max_lon,
             "max_lat": max_lat,
+            "limit": limit,
         },
     )
 

@@ -163,6 +163,11 @@ def list_project_features_map(
     min_lat: float = Query(...),
     max_lon: float = Query(...),
     max_lat: float = Query(...),
+    limit: int = Query(
+        1000,
+        ge=1,
+        le=5000,
+    ),
     db: Session = Depends(get_database),
 ) -> GeoJSONFeatureCollection:
     """

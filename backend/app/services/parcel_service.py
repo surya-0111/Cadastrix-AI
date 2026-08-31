@@ -157,6 +157,7 @@ def get_project_parcels_in_bbox(
     min_lat: float,
     max_lon: float,
     max_lat: float,
+    limit: int = 1000,
 ) -> list[Parcel]:
     """
     Return parcels from a project that intersect
@@ -170,16 +171,17 @@ def get_project_parcels_in_bbox(
         WHERE
             project_id = :project_id
             AND ST_Intersects(
-                geometry,
-                ST_MakeEnvelope(
-                    :min_lon,
-                    :min_lat,
-                    :max_lon,
-                    :max_lat,
-                    4326
-                )
+            geometry,
+        ST_MakeEnvelope(
+            :min_lon,
+            :min_lat,
+            :max_lon,
+            :max_lat,
+            4326
             )
+        )
         ORDER BY id
+        LIMIT :limit
         """
     )
 
@@ -191,6 +193,7 @@ def get_project_parcels_in_bbox(
             "min_lat": min_lat,
             "max_lon": max_lon,
             "max_lat": max_lat,
+            "limit": limit,
         },
     )
 
