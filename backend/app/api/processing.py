@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
+from fastapi import BackgroundTasks
 from app.dependencies.database import get_database
 from app.schemas.processing import ProcessingJobResponse
 from app.services.imagery_service import get_imagery
@@ -10,6 +10,7 @@ from app.services.processing_service import (
     get_project_processing_jobs,
 )
 from app.services.project_service import get_project
+from app.workers.processing_worker import run_processing_job
 
 
 router = APIRouter(
@@ -25,6 +26,7 @@ router = APIRouter(
 def create_processing_job_endpoint(
     project_id: int,
     imagery_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_database),
 ) -> ProcessingJobResponse:
     """
@@ -56,11 +58,18 @@ def create_processing_job_endpoint(
             ),
         )
 
-    return create_processing_job(
+    job = create_processing_job(
         db=db,
         project_id=project_id,
         imagery=imagery,
     )
+
+    background_tasks.add_task(
+        run_processing_job,
+        job.id,
+    )
+
+    return job
 
 
 @router.get(
