@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends
 from app.api.projects import router as projects_router
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from app.api.imagery import router as imagery_router
 
 from app.dependencies.database import get_database
 
 api_router = APIRouter(prefix="/api")
 
 api_router.include_router(projects_router)
+api_router.include_router(imagery_router)
 
 
 @api_router.get("/database/health", tags=["Database"])

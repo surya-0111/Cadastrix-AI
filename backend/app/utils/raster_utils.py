@@ -26,7 +26,15 @@ def extract_raster_metadata(file_path: str | Path) -> dict[str, Any]:
         with rasterio.open(path) as dataset:
             bounds = dataset.bounds
 
-            crs = dataset.crs.to_string() if dataset.crs else None
+            crs = None
+
+            if dataset.crs:
+                epsg_code = dataset.crs.to_epsg()
+
+                if epsg_code is not None:
+                    crs = f"EPSG:{epsg_code}"
+                else:
+                    crs = dataset.crs.to_wkt()
 
             return {
                 "width": dataset.width,

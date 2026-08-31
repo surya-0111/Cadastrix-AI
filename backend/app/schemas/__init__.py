@@ -1,3 +1,4 @@
+from app.schemas.imagery import ImageryResponse
 from app.schemas.project import (
     ProjectCreate,
     ProjectResponse,
@@ -5,6 +6,7 @@ from app.schemas.project import (
 )
 
 __all__ = [
+    "ImageryResponse",
     "ProjectCreate",
     "ProjectResponse",
     "ProjectUpdate",

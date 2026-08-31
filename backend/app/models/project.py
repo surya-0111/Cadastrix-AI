@@ -10,6 +10,7 @@ from sqlalchemy.orm import relationship
 
 if TYPE_CHECKING:
     from app.models.imagery import Imagery
+    from app.models.processing_job import ProcessingJob
 
 
 
@@ -26,6 +27,11 @@ class Project(Base):
     )
 
     imagery: Mapped[list["Imagery"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    processing_jobs: Mapped[list["ProcessingJob"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
     )

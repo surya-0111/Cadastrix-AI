@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     String,
+    Text,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -12,6 +13,7 @@ from app.db.session import Base
 
 if TYPE_CHECKING:
     from app.models.project import Project
+    from app.models.processing_job import ProcessingJob
 
 
 class Imagery(Base):
@@ -72,7 +74,7 @@ class Imagery(Base):
     )
 
     crs: Mapped[str | None] = mapped_column(
-        String(100),
+        Text,
         nullable=True,
     )
 
@@ -104,3 +106,8 @@ class Imagery(Base):
     project: Mapped["Project"] = relationship(
         back_populates="imagery",
     )
+
+    processing_jobs: Mapped[list["ProcessingJob"]] = relationship(
+        back_populates="imagery",
+        cascade="all, delete-orphan",
+    )   
