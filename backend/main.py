@@ -9,7 +9,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ML_CV_PATH = PROJECT_ROOT / "ml-cv"
 sys.path.insert(0, str(ML_CV_PATH))
 
-from main import process_geotiff
+from importlib.util import spec_from_file_location, module_from_spec
+
+ML_CV_MAIN = ML_CV_PATH / "main.py"
+spec = spec_from_file_location("ml_cv_main", ML_CV_MAIN)
+ml_cv_main = module_from_spec(spec)
+spec.loader.exec_module(ml_cv_main)
+
+process_geotiff = ml_cv_main.process_geotiff
 
 
 app = FastAPI(
