@@ -3,3 +3,6 @@ Pillow==12.0.0
 rasterio==1.4.4
 opencv-python==5.0.0.93
 Shapely==2.1.2
+torch==2.13.0
+torchvision==0.28.0
+pytest==9.1.1

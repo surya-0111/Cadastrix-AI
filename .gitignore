@@ -3,3 +3,10 @@ __pycache__/
 .venv/
 venv/
 .env
+
+# ML-CV training data
+ml-cv/data/building/images/
+ml-cv/data/building/masks/
+
+# ML-CV generated model checkpoints
+ml-cv/models/
