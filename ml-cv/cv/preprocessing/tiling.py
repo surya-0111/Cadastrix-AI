@@ -11,12 +11,22 @@ def tile_geotiff(
     overlap: int = 64,
 ) -> int:
     """
-    Split a GeoTIFF into overlapping GeoTIFF tiles.
+    Split a GeoTIFF into overlapping GeoTIFF tiles while preserving
+    CRS, transform, bands, dtype, and other important raster metadata.
 
-    Geospatial metadata such as CRS and spatial transform
-    is preserved for every generated tile.
+    Args:
+        image_path: Path to the input GeoTIFF.
+        output_dir: Directory where tiles will be written.
+        tile_size: Maximum tile width and height in pixels.
+        overlap: Number of overlapping pixels between adjacent tiles.
+
+    Returns:
+        Number of tiles created.
+
+    Raises:
+        FileNotFoundError: If the input image does not exist.
+        ValueError: If tile parameters are invalid or CRS is missing.
     """
-
     image_file = Path(image_path)
 
     if not image_file.is_file():
@@ -33,48 +43,46 @@ def tile_geotiff(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    tile_count = 0
-    step = tile_size - overlap
-
     with rasterio.open(image_file) as src:
+        if src.crs is None:
+            raise ValueError("Input GeoTIFF must contain a CRS.")
 
-        for top in range(0, src.height, step):
-            for left in range(0, src.width, step):
+        width = src.width
+        height = src.height
+        step = tile_size - overlap
+        tile_count = 0
 
-                width = min(tile_size, src.width - left)
-                height = min(tile_size, src.height - top)
+        for top in range(0, height, step):
+            for left in range(0, width, step):
+                tile_width = min(tile_size, width - left)
+                tile_height = min(tile_size, height - top)
+
+                if tile_width <= 0 or tile_height <= 0:
+                    continue
 
                 window = Window(
-                    left,
-                    top,
-                    width,
-                    height,
+                    col_off=left,
+                    row_off=top,
+                    width=tile_width,
+                    height=tile_height,
                 )
 
                 tile_transform = src.window_transform(window)
 
-                tile_data = src.read(window=window)
-
                 profile = src.profile.copy()
-
                 profile.update(
-                    {
-                        "height": height,
-                        "width": width,
-                        "transform": tile_transform,
-                    }
+                    driver="GTiff",
+                    width=tile_width,
+                    height=tile_height,
+                    transform=tile_transform,
+                    crs=src.crs,
                 )
 
                 tile_name = f"tile_{tile_count:04d}.tif"
-
                 tile_path = output_path / tile_name
 
-                with rasterio.open(
-                    tile_path,
-                    "w",
-                    **profile,
-                ) as dst:
-                    dst.write(tile_data)
+                with rasterio.open(tile_path, "w", **profile) as dst:
+                    dst.write(src.read(window=window))
 
                 tile_count += 1
 
