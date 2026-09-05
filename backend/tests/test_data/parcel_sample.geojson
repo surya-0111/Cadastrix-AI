@@ -1,0 +1,25 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "parcel_code": "P-TEST-001",
+        "confidence": 0.92,
+        "area_m2": 1250.5,
+        "perimeter_m": 145.7
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [77.5940, 12.9710],
+            [77.5960, 12.9710],
+            [77.5960, 12.9730],
+            [77.5940, 12.9710]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+backend/venv/
+frontend/node_modules/
+frontend-exact/node_modules/
+frontend/dist/
+backend/storage/
+backend/tiles/
+backend/drone_real.tif
+backend/sample_drone.tif
+backend/building_mask.tif
+ml-cv/models/building/building_unet.pth
+.env.local 
+frontend-exact/dist/ 
+backend/buildings.geojson 
+backend/buildings_clean.geojson 
+backend/app/services/topology_service.py.bak
